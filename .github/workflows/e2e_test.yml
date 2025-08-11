@@ -1,5 +1,5 @@
 name: "E2E test"
-on: [push, workflow_dispatch]
+on: [workflow_dispatch]
 
 # End to end tests require content permissions to create releases
 # This essentially gives permissions to make ANY change in the repository, so we should not grant this to PRs
