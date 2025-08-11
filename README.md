@@ -225,16 +225,3 @@ permissions:
 ```
 
 By default, these permissions are granted on `push` but not on `pr` - and you should be wary of adding them to workflows that run on pr, as they allow [wide access to changing the entire repo's contents](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps?apiVersion=2022-11-28#repository-permissions-for-contents)
-
-## Releasing
-
-To release this Action:
-
-- Bump version in `package.json`
-- Create `CHANGELOG.md` entry
-- `npm update`
-- `npm run all`
-- `git commit -am <version>`
-- `git tag -sm <version> <version>`
-- `git push --follow-tags`
-- Go to https://github.com/step-security/upload-release-action/releases and publish the new version
