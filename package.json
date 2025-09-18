@@ -35,7 +35,7 @@
     "glob": "^11"
   },
   "devDependencies": {
-    "@octokit/types": "^13.6.1",
+    "@octokit/types": "^15.0.0",
     "@types/jest": "^29",
     "@types/node": "^22",
     "@typescript-eslint/eslint-plugin": "^8.14.0",
