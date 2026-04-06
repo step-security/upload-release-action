@@ -27,7 +27,7 @@
   "author": "step-security",
   "license": "MIT",
   "dependencies": {
-    "@actions/core": "^1.11.1",
+    "@actions/core": "^2.0.1",
     "@actions/github": "^6.0.0",
     "@lifeomic/attempt": "^3.1.0",
     "@octokit/core": "^5.2.1",
@@ -39,7 +39,7 @@
     "@types/jest": "^29",
     "@types/node": "^22",
     "@typescript-eslint/eslint-plugin": "^8.14.0",
-    "@typescript-eslint/parser": "^8",
+    "@typescript-eslint/parser": "^8.58.0",
     "@vercel/ncc": "^0.38.3",
     "eslint": "^9",
     "eslint-plugin-github": "^5.0",

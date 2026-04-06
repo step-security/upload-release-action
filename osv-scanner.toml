@@ -1,0 +1,19 @@
+[[IgnoredVulns]]
+id = "GHSA-v9p9-hfj2-hcw8"
+reason = "WebSocket client crash via invalid server_max_window_bits. Not exploitable: this action never uses WebSockets, only REST API calls to GitHub."
+
+[[IgnoredVulns]]
+id = "GHSA-vrm6-8vpv-qv8q"
+reason = "WebSocket decompression bomb. Not exploitable: this action never uses WebSockets, only REST API calls to GitHub."
+
+[[IgnoredVulns]]
+id = "GHSA-2mjp-6q6p-2qxm"
+reason = "HTTP request smuggling via duplicate Content-Length headers. Not exploitable: headers are hardcoded objects passed through Octokit, no user-controlled header names or flat arrays."
+
+[[IgnoredVulns]]
+id = "GHSA-g9mf-h72j-4rw9"
+reason = "Unbounded decompression chain via Content-Encoding. Not exploitable: action only communicates with trusted GitHub API endpoints over TLS."
+
+[[IgnoredVulns]]
+id = "GHSA-4992-7rv2-5pvq"
+reason = "CRLF injection via undici upgrade option. Not exploitable: the upgrade option is never used by this action."
