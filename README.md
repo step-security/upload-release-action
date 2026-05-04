@@ -1,3 +1,5 @@
+[![StepSecurity Maintained Action](https://raw.githubusercontent.com/step-security/maintained-actions-assets/main/assets/maintained-action-banner.png)](https://docs.stepsecurity.io/actions/stepsecurity-maintained-actions)
+
 # Upload files to a GitHub release [![GitHub Actions Workflow](https://github.com/step-security/upload-release-action/actions/workflows/e2e_test.yml/badge.svg)](https://github.com/step-security/upload-release-action/actions)
 
 This action allows you to select which files to upload to the just-tagged release.
