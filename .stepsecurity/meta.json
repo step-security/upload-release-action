@@ -1,0 +1,17 @@
+{
+   "schema_version": "1",
+   "onboarding_type": "copied",
+   "archived": false,
+   "maintained_action_name": "step-security/upload-release-action",
+   "upstream_full_repo_name": "svenstaro/upload-release-action",
+   "action_type": "node",
+   "last_release": {
+     "tag_name": "ci-test-windows-latest-16874479931",
+     "created_at": "2025-08-11T08:11:16Z"
+   },
+   "sync": {
+     "ignore_presets": [
+       "defaults_v1"
+     ]
+   }
+ }
