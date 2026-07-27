@@ -41040,7 +41040,7 @@ module.exports = function sign(number) {
 
 /***/ }),
 
-/***/ 2210:
+/***/ 9829:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
 /*!
@@ -41077,7 +41077,7 @@ module.exports = __nccwpck_require__(1813)
  * @private
  */
 
-var db = __nccwpck_require__(2210)
+var db = __nccwpck_require__(9829)
 var extname = (__nccwpck_require__(6928).extname)
 
 /**
@@ -66171,6 +66171,342 @@ module.exports = parseParams
 
 /***/ }),
 
+/***/ 6587:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.EXPANSION_MAX_LENGTH = exports.EXPANSION_MAX = void 0;
+exports.expand = expand;
+const balanced_match_1 = __nccwpck_require__(3580);
+const escSlash = '\0SLASH' + Math.random() + '\0';
+const escOpen = '\0OPEN' + Math.random() + '\0';
+const escClose = '\0CLOSE' + Math.random() + '\0';
+const escComma = '\0COMMA' + Math.random() + '\0';
+const escPeriod = '\0PERIOD' + Math.random() + '\0';
+const escSlashPattern = new RegExp(escSlash, 'g');
+const escOpenPattern = new RegExp(escOpen, 'g');
+const escClosePattern = new RegExp(escClose, 'g');
+const escCommaPattern = new RegExp(escComma, 'g');
+const escPeriodPattern = new RegExp(escPeriod, 'g');
+const slashPattern = /\\\\/g;
+const openPattern = /\\{/g;
+const closePattern = /\\}/g;
+const commaPattern = /\\,/g;
+const periodPattern = /\\\./g;
+exports.EXPANSION_MAX = 100_000;
+// `EXPANSION_MAX` caps the *number* of expansions, but not their length. An
+// input like `'{a,b}'.repeat(1500)` stays under that count - its output is
+// truncated to 100k results - while making every result ~1500 characters
+// long. The result set, and the intermediate arrays built while combining
+// brace sets, then grow large enough to exhaust memory and crash the process
+// (CVE-2026-14257). `EXPANSION_MAX_LENGTH` bounds the total number of
+// characters the accumulator may hold at any point, so memory stays flat no
+// matter how many brace groups are chained. The limit sits well above any
+// realistic expansion (100k results hitting `EXPANSION_MAX` measure ~1M
+// characters) so legitimate input is unaffected.
+exports.EXPANSION_MAX_LENGTH = 4_000_000;
+function numeric(str) {
+    return !isNaN(str) ? parseInt(str, 10) : str.charCodeAt(0);
+}
+function escapeBraces(str) {
+    return str
+        .replace(slashPattern, escSlash)
+        .replace(openPattern, escOpen)
+        .replace(closePattern, escClose)
+        .replace(commaPattern, escComma)
+        .replace(periodPattern, escPeriod);
+}
+function unescapeBraces(str) {
+    return str
+        .replace(escSlashPattern, '\\')
+        .replace(escOpenPattern, '{')
+        .replace(escClosePattern, '}')
+        .replace(escCommaPattern, ',')
+        .replace(escPeriodPattern, '.');
+}
+/**
+ * Basically just str.split(","), but handling cases
+ * where we have nested braced sections, which should be
+ * treated as individual members, like {a,{b,c},d}
+ */
+function parseCommaParts(str) {
+    if (!str) {
+        return [''];
+    }
+    const parts = [];
+    const m = (0, balanced_match_1.balanced)('{', '}', str);
+    if (!m) {
+        return str.split(',');
+    }
+    const { pre, body, post } = m;
+    const p = pre.split(',');
+    p[p.length - 1] += '{' + body + '}';
+    const postParts = parseCommaParts(post);
+    if (post.length) {
+        ;
+        p[p.length - 1] += postParts.shift();
+        p.push.apply(p, postParts);
+    }
+    parts.push.apply(parts, p);
+    return parts;
+}
+function expand(str, options = {}) {
+    if (!str) {
+        return [];
+    }
+    const { max = exports.EXPANSION_MAX, maxLength = exports.EXPANSION_MAX_LENGTH } = options;
+    // I don't know why Bash 4.3 does this, but it does.
+    // Anything starting with {} will have the first two bytes preserved
+    // but *only* at the top level, so {},a}b will not expand to anything,
+    // but a{},b}c will be expanded to [a}c,abc].
+    // One could argue that this is a bug in Bash, but since the goal of
+    // this module is to match Bash's rules, we escape a leading {}
+    if (str.slice(0, 2) === '{}') {
+        str = '\\{\\}' + str.slice(2);
+    }
+    return expand_(escapeBraces(str), max, maxLength, true).map(unescapeBraces);
+}
+function embrace(str) {
+    return '{' + str + '}';
+}
+function isPadded(el) {
+    return /^-?0\d/.test(el);
+}
+function lte(i, y) {
+    return i <= y;
+}
+function gte(i, y) {
+    return i >= y;
+}
+// Build `{ acc[a] + pre + values[v] }` for every combination, capping the
+// number of results at `max` and the total number of characters at `maxLength`.
+// This is the one place output grows, so bounding it here keeps the single
+// accumulator - and therefore memory - flat regardless of how many brace groups
+// are combined (CVE-2026-14257).
+function combine(acc, pre, values, max, maxLength, dropEmpties) {
+    const out = [];
+    let length = 0;
+    for (let a = 0; a < acc.length; a++) {
+        for (let v = 0; v < values.length; v++) {
+            if (out.length >= max)
+                return out;
+            const expansion = acc[a] + pre + values[v];
+            // Bash drops empty results at the top level. Skip them before they count
+            // against `max`, so `max` bounds the number of *kept* results.
+            if (dropEmpties && !expansion)
+                continue;
+            if (length + expansion.length > maxLength)
+                return out;
+            out.push(expansion);
+            length += expansion.length;
+        }
+    }
+    return out;
+}
+// The expansion values of a single numeric (`1..5`) or alphabetic (`a..e..2`)
+// sequence body.
+function expandSequence(body, isAlphaSequence, max) {
+    const n = body.split(/\.\./);
+    const N = [];
+    // A sequence body always splits into two or three parts, but the compiler
+    // can't know that.
+    /* c8 ignore start */
+    if (n[0] === undefined || n[1] === undefined) {
+        return N;
+    }
+    /* c8 ignore stop */
+    const x = numeric(n[0]);
+    const y = numeric(n[1]);
+    const width = Math.max(n[0].length, n[1].length);
+    let incr = n.length === 3 && n[2] !== undefined ?
+        Math.max(Math.abs(numeric(n[2])), 1)
+        : 1;
+    let test = lte;
+    const reverse = y < x;
+    if (reverse) {
+        incr *= -1;
+        test = gte;
+    }
+    const pad = n.some(isPadded);
+    for (let i = x; test(i, y) && N.length < max; i += incr) {
+        let c;
+        if (isAlphaSequence) {
+            c = String.fromCharCode(i);
+            if (c === '\\') {
+                c = '';
+            }
+        }
+        else {
+            c = String(i);
+            if (pad) {
+                const need = width - c.length;
+                if (need > 0) {
+                    const z = new Array(need + 1).join('0');
+                    if (i < 0) {
+                        c = '-' + z + c.slice(1);
+                    }
+                    else {
+                        c = z + c;
+                    }
+                }
+            }
+        }
+        N.push(c);
+    }
+    return N;
+}
+function expand_(str, max, maxLength, isTop) {
+    // Consume the string's top-level brace groups left to right, threading a
+    // running set of combined prefixes (`acc`). Expanding the tail iteratively -
+    // rather than recursing on `m.post` once per group - keeps the native stack
+    // depth constant, so deeply chained input (`'{a,b}'.repeat(3000)`) can no
+    // longer overflow the stack, and leaves a single accumulator whose size
+    // `maxLength` bounds directly (CVE-2026-14257).
+    let acc = [''];
+    // Bash drops empty results, but only when the *first* top-level group is a
+    // comma set - a sequence like `{a..\}` may legitimately yield ''. The drop
+    // is on the final strings, so it is applied to whichever `combine` produces
+    // them (the one with no brace set left in the tail).
+    let dropEmpties = false;
+    let firstGroup = true;
+    for (;;) {
+        const m = (0, balanced_match_1.balanced)('{', '}', str);
+        // No brace set left: the rest of the string is literal.
+        if (!m) {
+            return combine(acc, str, [''], max, maxLength, dropEmpties);
+        }
+        // no need to expand pre, since it is guaranteed to be free of brace-sets
+        const pre = m.pre;
+        if (/\$$/.test(pre)) {
+            acc = combine(acc, pre + '{' + m.body + '}', [''], max, maxLength, dropEmpties && !m.post.length);
+            firstGroup = false;
+            if (!m.post.length)
+                break;
+            str = m.post;
+            continue;
+        }
+        const isNumericSequence = /^-?\d+\.\.-?\d+(?:\.\.-?\d+)?$/.test(m.body);
+        const isAlphaSequence = /^[a-zA-Z]\.\.[a-zA-Z](?:\.\.-?\d+)?$/.test(m.body);
+        const isSequence = isNumericSequence || isAlphaSequence;
+        const isOptions = m.body.indexOf(',') >= 0;
+        if (!isSequence && !isOptions) {
+            // {a},b}
+            if (m.post.match(/,(?!,).*\}/)) {
+                str = m.pre + '{' + m.body + escClose + m.post;
+                isTop = true;
+                continue;
+            }
+            // Nothing here expands, so the whole remaining string is literal.
+            return combine(acc, pre + '{' + m.body + '}' + m.post, [''], max, maxLength, dropEmpties);
+        }
+        if (firstGroup) {
+            dropEmpties = isTop && !isSequence;
+            firstGroup = false;
+        }
+        let values;
+        if (isSequence) {
+            values = expandSequence(m.body, isAlphaSequence, max);
+        }
+        else {
+            let n = parseCommaParts(m.body);
+            if (n.length === 1 && n[0] !== undefined) {
+                // x{{a,b}}y ==> x{a}y x{b}y
+                n = expand_(n[0], max, maxLength, false).map(embrace);
+                //XXX is this necessary? Can't seem to hit it in tests.
+                /* c8 ignore start */
+                if (n.length === 1) {
+                    acc = combine(acc, pre + n[0], [''], max, maxLength, dropEmpties && !m.post.length);
+                    if (!m.post.length)
+                        break;
+                    str = m.post;
+                    continue;
+                }
+                /* c8 ignore stop */
+            }
+            values = [];
+            for (let j = 0; j < n.length; j++) {
+                values.push.apply(values, expand_(n[j], max, maxLength, false));
+            }
+        }
+        acc = combine(acc, pre, values, max, maxLength, dropEmpties && !m.post.length);
+        if (!m.post.length)
+            break;
+        str = m.post;
+    }
+    return acc;
+}
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 3580:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.range = exports.balanced = void 0;
+const balanced = (a, b, str) => {
+    const ma = a instanceof RegExp ? maybeMatch(a, str) : a;
+    const mb = b instanceof RegExp ? maybeMatch(b, str) : b;
+    const r = ma !== null && mb != null && (0, exports.range)(ma, mb, str);
+    return (r && {
+        start: r[0],
+        end: r[1],
+        pre: str.slice(0, r[0]),
+        body: str.slice(r[0] + ma.length, r[1]),
+        post: str.slice(r[1] + mb.length),
+    });
+};
+exports.balanced = balanced;
+const maybeMatch = (reg, str) => {
+    const m = str.match(reg);
+    return m ? m[0] : null;
+};
+const range = (a, b, str) => {
+    let begs, beg, left, right = undefined, result;
+    let ai = str.indexOf(a);
+    let bi = str.indexOf(b, ai + 1);
+    let i = ai;
+    if (ai >= 0 && bi > 0) {
+        if (a === b) {
+            return [ai, bi];
+        }
+        begs = [];
+        left = str.length;
+        while (i >= 0 && !result) {
+            if (i === ai) {
+                begs.push(i);
+                ai = str.indexOf(a, i + 1);
+            }
+            else if (begs.length === 1) {
+                const r = begs.pop();
+                if (r !== undefined)
+                    result = [r, bi];
+            }
+            else {
+                beg = begs.pop();
+                if (beg !== undefined && beg < left) {
+                    left = beg;
+                    right = bi;
+                }
+                bi = str.indexOf(b, i + 1);
+            }
+            i = ai < bi && ai >= 0 ? ai : bi;
+        }
+        if (begs.length && right !== undefined) {
+            result = [left, right];
+        }
+    }
+    return result;
+};
+exports.range = range;
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
 /***/ 2981:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -66178,7 +66514,7 @@ module.exports = parseParams
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Glob = void 0;
-const minimatch_1 = __nccwpck_require__(1409);
+const minimatch_1 = __nccwpck_require__(6507);
 const node_url_1 = __nccwpck_require__(3136);
 const path_scurry_1 = __nccwpck_require__(6577);
 const pattern_js_1 = __nccwpck_require__(7813);
@@ -66432,7 +66768,7 @@ exports.Glob = Glob;
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.hasMagic = void 0;
-const minimatch_1 = __nccwpck_require__(1409);
+const minimatch_1 = __nccwpck_require__(6507);
 /**
  * Return true if the patterns provided contain any magic glob characters,
  * given the options provided.
@@ -66470,7 +66806,7 @@ exports.hasMagic = hasMagic;
 // Ignores are always parsed in dot:true mode
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Ignore = void 0;
-const minimatch_1 = __nccwpck_require__(1409);
+const minimatch_1 = __nccwpck_require__(6507);
 const pattern_js_1 = __nccwpck_require__(7813);
 const defaultPlatform = (typeof process === 'object' &&
     process &&
@@ -66597,10 +66933,10 @@ exports.globStream = globStream;
 exports.globSync = globSync;
 exports.globIterateSync = globIterateSync;
 exports.globIterate = globIterate;
-const minimatch_1 = __nccwpck_require__(1409);
+const minimatch_1 = __nccwpck_require__(6507);
 const glob_js_1 = __nccwpck_require__(2981);
 const has_magic_js_1 = __nccwpck_require__(5197);
-var minimatch_2 = __nccwpck_require__(1409);
+var minimatch_2 = __nccwpck_require__(6507);
 Object.defineProperty(exports, "escape", ({ enumerable: true, get: function () { return minimatch_2.escape; } }));
 Object.defineProperty(exports, "unescape", ({ enumerable: true, get: function () { return minimatch_2.unescape; } }));
 var glob_js_2 = __nccwpck_require__(2981);
@@ -66668,7 +67004,7 @@ exports.glob.glob = exports.glob;
 // this is just a very light wrapper around 2 arrays with an offset index
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Pattern = void 0;
-const minimatch_1 = __nccwpck_require__(1409);
+const minimatch_1 = __nccwpck_require__(6507);
 const isPatternList = (pl) => pl.length >= 1;
 const isGlobList = (gl) => gl.length >= 1;
 /**
@@ -66894,7 +67230,7 @@ exports.Pattern = Pattern;
 // synchronous utility for filtering entries and calculating subwalks
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Processor = exports.SubWalks = exports.MatchRecord = exports.HasWalkedCache = void 0;
-const minimatch_1 = __nccwpck_require__(1409);
+const minimatch_1 = __nccwpck_require__(6507);
 /**
  * A cache of which patterns have been processed for a given Path
  */
@@ -67588,291 +67924,7 @@ exports.GlobStream = GlobStream;
 
 /***/ }),
 
-/***/ 4059:
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.range = exports.balanced = void 0;
-const balanced = (a, b, str) => {
-    const ma = a instanceof RegExp ? maybeMatch(a, str) : a;
-    const mb = b instanceof RegExp ? maybeMatch(b, str) : b;
-    const r = ma !== null && mb != null && (0, exports.range)(ma, mb, str);
-    return (r && {
-        start: r[0],
-        end: r[1],
-        pre: str.slice(0, r[0]),
-        body: str.slice(r[0] + ma.length, r[1]),
-        post: str.slice(r[1] + mb.length),
-    });
-};
-exports.balanced = balanced;
-const maybeMatch = (reg, str) => {
-    const m = str.match(reg);
-    return m ? m[0] : null;
-};
-const range = (a, b, str) => {
-    let begs, beg, left, right = undefined, result;
-    let ai = str.indexOf(a);
-    let bi = str.indexOf(b, ai + 1);
-    let i = ai;
-    if (ai >= 0 && bi > 0) {
-        if (a === b) {
-            return [ai, bi];
-        }
-        begs = [];
-        left = str.length;
-        while (i >= 0 && !result) {
-            if (i === ai) {
-                begs.push(i);
-                ai = str.indexOf(a, i + 1);
-            }
-            else if (begs.length === 1) {
-                const r = begs.pop();
-                if (r !== undefined)
-                    result = [r, bi];
-            }
-            else {
-                beg = begs.pop();
-                if (beg !== undefined && beg < left) {
-                    left = beg;
-                    right = bi;
-                }
-                bi = str.indexOf(b, i + 1);
-            }
-            i = ai < bi && ai >= 0 ? ai : bi;
-        }
-        if (begs.length && right !== undefined) {
-            result = [left, right];
-        }
-    }
-    return result;
-};
-exports.range = range;
-//# sourceMappingURL=index.js.map
-
-/***/ }),
-
-/***/ 7106:
-/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.EXPANSION_MAX = void 0;
-exports.expand = expand;
-const balanced_match_1 = __nccwpck_require__(4059);
-const escSlash = '\0SLASH' + Math.random() + '\0';
-const escOpen = '\0OPEN' + Math.random() + '\0';
-const escClose = '\0CLOSE' + Math.random() + '\0';
-const escComma = '\0COMMA' + Math.random() + '\0';
-const escPeriod = '\0PERIOD' + Math.random() + '\0';
-const escSlashPattern = new RegExp(escSlash, 'g');
-const escOpenPattern = new RegExp(escOpen, 'g');
-const escClosePattern = new RegExp(escClose, 'g');
-const escCommaPattern = new RegExp(escComma, 'g');
-const escPeriodPattern = new RegExp(escPeriod, 'g');
-const slashPattern = /\\\\/g;
-const openPattern = /\\{/g;
-const closePattern = /\\}/g;
-const commaPattern = /\\,/g;
-const periodPattern = /\\\./g;
-exports.EXPANSION_MAX = 100_000;
-function numeric(str) {
-    return !isNaN(str) ? parseInt(str, 10) : str.charCodeAt(0);
-}
-function escapeBraces(str) {
-    return str
-        .replace(slashPattern, escSlash)
-        .replace(openPattern, escOpen)
-        .replace(closePattern, escClose)
-        .replace(commaPattern, escComma)
-        .replace(periodPattern, escPeriod);
-}
-function unescapeBraces(str) {
-    return str
-        .replace(escSlashPattern, '\\')
-        .replace(escOpenPattern, '{')
-        .replace(escClosePattern, '}')
-        .replace(escCommaPattern, ',')
-        .replace(escPeriodPattern, '.');
-}
-/**
- * Basically just str.split(","), but handling cases
- * where we have nested braced sections, which should be
- * treated as individual members, like {a,{b,c},d}
- */
-function parseCommaParts(str) {
-    if (!str) {
-        return [''];
-    }
-    const parts = [];
-    const m = (0, balanced_match_1.balanced)('{', '}', str);
-    if (!m) {
-        return str.split(',');
-    }
-    const { pre, body, post } = m;
-    const p = pre.split(',');
-    p[p.length - 1] += '{' + body + '}';
-    const postParts = parseCommaParts(post);
-    if (post.length) {
-        ;
-        p[p.length - 1] += postParts.shift();
-        p.push.apply(p, postParts);
-    }
-    parts.push.apply(parts, p);
-    return parts;
-}
-function expand(str, options = {}) {
-    if (!str) {
-        return [];
-    }
-    const { max = exports.EXPANSION_MAX } = options;
-    // I don't know why Bash 4.3 does this, but it does.
-    // Anything starting with {} will have the first two bytes preserved
-    // but *only* at the top level, so {},a}b will not expand to anything,
-    // but a{},b}c will be expanded to [a}c,abc].
-    // One could argue that this is a bug in Bash, but since the goal of
-    // this module is to match Bash's rules, we escape a leading {}
-    if (str.slice(0, 2) === '{}') {
-        str = '\\{\\}' + str.slice(2);
-    }
-    return expand_(escapeBraces(str), max, true).map(unescapeBraces);
-}
-function embrace(str) {
-    return '{' + str + '}';
-}
-function isPadded(el) {
-    return /^-?0\d/.test(el);
-}
-function lte(i, y) {
-    return i <= y;
-}
-function gte(i, y) {
-    return i >= y;
-}
-function expand_(str, max, isTop) {
-    /** @type {string[]} */
-    const expansions = [];
-    // The `{a},b}` rewrite below restarts expansion on a rewritten string with
-    // the same `max` and `isTop = true`. Loop instead of recursing so a long run
-    // of non-expanding `{}` groups can't exhaust the call stack.
-    for (;;) {
-        const m = (0, balanced_match_1.balanced)('{', '}', str);
-        if (!m)
-            return [str];
-        // no need to expand pre, since it is guaranteed to be free of brace-sets
-        const pre = m.pre;
-        if (/\$$/.test(m.pre)) {
-            const post = m.post.length ? expand_(m.post, max, false) : [''];
-            for (let k = 0; k < post.length && k < max; k++) {
-                const expansion = pre + '{' + m.body + '}' + post[k];
-                expansions.push(expansion);
-            }
-            return expansions;
-        }
-        const isNumericSequence = /^-?\d+\.\.-?\d+(?:\.\.-?\d+)?$/.test(m.body);
-        const isAlphaSequence = /^[a-zA-Z]\.\.[a-zA-Z](?:\.\.-?\d+)?$/.test(m.body);
-        const isSequence = isNumericSequence || isAlphaSequence;
-        const isOptions = m.body.indexOf(',') >= 0;
-        if (!isSequence && !isOptions) {
-            // {a},b}
-            if (m.post.match(/,(?!,).*\}/)) {
-                str = m.pre + '{' + m.body + escClose + m.post;
-                isTop = true;
-                continue;
-            }
-            return [str];
-        }
-        // Only expand post once we know this brace set actually expands. Computing
-        // it before the early returns above expanded post a second time on every
-        // non-expanding `{}`, which is what made inputs like `a{},{},{}...` blow up
-        // exponentially.
-        const post = m.post.length ? expand_(m.post, max, false) : [''];
-        let n;
-        if (isSequence) {
-            n = m.body.split(/\.\./);
-        }
-        else {
-            n = parseCommaParts(m.body);
-            if (n.length === 1 && n[0] !== undefined) {
-                // x{{a,b}}y ==> x{a}y x{b}y
-                n = expand_(n[0], max, false).map(embrace);
-                //XXX is this necessary? Can't seem to hit it in tests.
-                /* c8 ignore start */
-                if (n.length === 1) {
-                    return post.map(p => m.pre + n[0] + p);
-                }
-                /* c8 ignore stop */
-            }
-        }
-        // at this point, n is the parts, and we know it's not a comma set
-        // with a single entry.
-        let N;
-        if (isSequence && n[0] !== undefined && n[1] !== undefined) {
-            const x = numeric(n[0]);
-            const y = numeric(n[1]);
-            const width = Math.max(n[0].length, n[1].length);
-            let incr = n.length === 3 && n[2] !== undefined ?
-                Math.max(Math.abs(numeric(n[2])), 1)
-                : 1;
-            let test = lte;
-            const reverse = y < x;
-            if (reverse) {
-                incr *= -1;
-                test = gte;
-            }
-            const pad = n.some(isPadded);
-            N = [];
-            for (let i = x; test(i, y) && N.length < max; i += incr) {
-                let c;
-                if (isAlphaSequence) {
-                    c = String.fromCharCode(i);
-                    if (c === '\\') {
-                        c = '';
-                    }
-                }
-                else {
-                    c = String(i);
-                    if (pad) {
-                        const need = width - c.length;
-                        if (need > 0) {
-                            const z = new Array(need + 1).join('0');
-                            if (i < 0) {
-                                c = '-' + z + c.slice(1);
-                            }
-                            else {
-                                c = z + c;
-                            }
-                        }
-                    }
-                }
-                N.push(c);
-            }
-        }
-        else {
-            N = [];
-            for (let j = 0; j < n.length; j++) {
-                N.push.apply(N, expand_(n[j], max, false));
-            }
-        }
-        for (let j = 0; j < N.length; j++) {
-            for (let k = 0; k < post.length && expansions.length < max; k++) {
-                const expansion = pre + N[j] + post[k];
-                if (!isTop || isSequence || expansion) {
-                    expansions.push(expansion);
-                }
-            }
-        }
-        return expansions;
-    }
-}
-//# sourceMappingURL=index.js.map
-
-/***/ }),
-
-/***/ 8895:
+/***/ 7305:
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -67893,7 +67945,7 @@ exports.assertValidPattern = assertValidPattern;
 
 /***/ }),
 
-/***/ 3238:
+/***/ 1803:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
@@ -67902,8 +67954,8 @@ exports.assertValidPattern = assertValidPattern;
 var _a;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.AST = void 0;
-const brace_expressions_js_1 = __nccwpck_require__(5192);
-const unescape_js_1 = __nccwpck_require__(9829);
+const brace_expressions_js_1 = __nccwpck_require__(1090);
+const unescape_js_1 = __nccwpck_require__(851);
 const types = new Set(['!', '?', '+', '*', '@']);
 const isExtglobType = (c) => types.has(c);
 const isExtglobAST = (c) => isExtglobType(c.type);
@@ -68745,7 +68797,7 @@ _a = AST;
 
 /***/ }),
 
-/***/ 5192:
+/***/ 1090:
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -68902,7 +68954,7 @@ exports.parseClass = parseClass;
 
 /***/ }),
 
-/***/ 6726:
+/***/ 800:
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -68939,18 +68991,18 @@ exports.escape = escape;
 
 /***/ }),
 
-/***/ 1409:
+/***/ 6507:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.unescape = exports.escape = exports.AST = exports.Minimatch = exports.match = exports.makeRe = exports.braceExpand = exports.defaults = exports.filter = exports.GLOBSTAR = exports.sep = exports.minimatch = void 0;
-const brace_expansion_1 = __nccwpck_require__(7106);
-const assert_valid_pattern_js_1 = __nccwpck_require__(8895);
-const ast_js_1 = __nccwpck_require__(3238);
-const escape_js_1 = __nccwpck_require__(6726);
-const unescape_js_1 = __nccwpck_require__(9829);
+const brace_expansion_1 = __nccwpck_require__(6587);
+const assert_valid_pattern_js_1 = __nccwpck_require__(7305);
+const ast_js_1 = __nccwpck_require__(1803);
+const escape_js_1 = __nccwpck_require__(800);
+const unescape_js_1 = __nccwpck_require__(851);
 const minimatch = (p, pattern, options = {}) => {
     (0, assert_valid_pattern_js_1.assertValidPattern)(pattern);
     // shortcut: comments match nothing.
@@ -70058,11 +70110,11 @@ class Minimatch {
 }
 exports.Minimatch = Minimatch;
 /* c8 ignore start */
-var ast_js_2 = __nccwpck_require__(3238);
+var ast_js_2 = __nccwpck_require__(1803);
 Object.defineProperty(exports, "AST", ({ enumerable: true, get: function () { return ast_js_2.AST; } }));
-var escape_js_2 = __nccwpck_require__(6726);
+var escape_js_2 = __nccwpck_require__(800);
 Object.defineProperty(exports, "escape", ({ enumerable: true, get: function () { return escape_js_2.escape; } }));
-var unescape_js_2 = __nccwpck_require__(9829);
+var unescape_js_2 = __nccwpck_require__(851);
 Object.defineProperty(exports, "unescape", ({ enumerable: true, get: function () { return unescape_js_2.unescape; } }));
 /* c8 ignore stop */
 exports.minimatch.AST = ast_js_1.AST;
@@ -70073,7 +70125,7 @@ exports.minimatch.unescape = unescape_js_1.unescape;
 
 /***/ }),
 
-/***/ 9829:
+/***/ 851:
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
