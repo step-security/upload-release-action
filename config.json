@@ -1,0 +1,17 @@
+{
+  "$comment": "Managed automatically when syncing with upstream. Do not edit by hand.",
+  "schema_version": 1,
+  "onboarding_type": "copied",
+  "action_type": "node",
+  "upstream": {
+    "repository": "svenstaro/upload-release-action",
+    "synced_tag": "2.11.5",
+    "synced_commit": "29e53e917877a24fad85510ded594ab3c9ca12de",
+    "archived": false
+  },
+  "build": {
+    "package_manager": "npm@11.20.0",
+    "node_version": "24",
+    "script": "all"
+  }
+}
