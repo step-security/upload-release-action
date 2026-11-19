@@ -17,3 +17,7 @@ reason = "undici@5.29.0 - Unbounded decompression chain via Content-Encoding. No
 [[IgnoredVulns]]
 id = "GHSA-4992-7rv2-5pvq"
 reason = "undici@5.29.0 - CRLF injection via undici upgrade option. Not exploitable: the upgrade option is never used by this action."
+
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+reason = "minimatch@10.2.5 - dev dependency only (build/lint tooling). Not shipped in the action bundle and never processes untrusted glob patterns."
