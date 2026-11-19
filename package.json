@@ -34,7 +34,7 @@
     "@lifeomic/attempt": "^3.1.0",
     "@octokit/core": "^7.0.0",
     "axios": "^1.20.0",
-    "glob": "^11"
+    "glob": "^14"
   },
   "devDependencies": {
     "@octokit/types": "^18.0.0",
